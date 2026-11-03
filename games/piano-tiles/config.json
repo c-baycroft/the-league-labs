@@ -1,0 +1,89 @@
+{
+ "id": "library-piano-01",
+ "image": "library/piano-bookshelf.jpg",
+ "startInterval": 0.9,
+ "minInterval": 0.28,
+ "speedUp": 0.965,
+ "regions": [
+  {
+   "id": "book-1",
+   "type": "book",
+   "x": 0.1601,
+   "y": 0.3431,
+   "width": 0.0291,
+   "height": 0.5654
+  },
+  {
+   "id": "book-2",
+   "type": "book",
+   "x": 0.1892,
+   "y": 0.3105,
+   "width": 0.0331,
+   "height": 0.598
+  },
+  {
+   "id": "book-3",
+   "type": "book",
+   "x": 0.2222,
+   "y": 0.3007,
+   "width": 0.0291,
+   "height": 0.6078
+  },
+  {
+   "id": "book-4",
+   "type": "book",
+   "x": 0.2513,
+   "y": 0.3758,
+   "width": 0.0331,
+   "height": 0.5327
+  },
+  {
+   "id": "book-5",
+   "type": "book",
+   "x": 0.2844,
+   "y": 0.2778,
+   "width": 0.0569,
+   "height": 0.6307
+  },
+  {
+   "id": "book-6",
+   "type": "book",
+   "x": 0.3413,
+   "y": 0.2614,
+   "width": 0.0463,
+   "height": 0.6471
+  },
+  {
+   "id": "book-7",
+   "type": "book",
+   "x": 0.4034,
+   "y": 0.3529,
+   "width": 0.0397,
+   "height": 0.5556
+  },
+  {
+   "id": "book-8",
+   "type": "book",
+   "x": 0.4431,
+   "y": 0.4183,
+   "width": 0.037,
+   "height": 0.4902
+  },
+  {
+   "id": "book-9",
+   "type": "book",
+   "x": 0.4802,
+   "y": 0.317,
+   "width": 0.0661,
+   "height": 0.5915
+  },
+  {
+   "id": "book-10",
+   "type": "book",
+   "x": 0.5463,
+   "y": 0.3431,
+   "width": 0.0251,
+   "height": 0.5654
+  }
+ ]
+}

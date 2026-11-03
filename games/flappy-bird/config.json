@@ -1,0 +1,348 @@
+{
+ "id": "library-flappy-01",
+ "image": "library/flappy-bookshelf.jpg",
+ "birdRadius": 6,
+ "speed": 50,
+ "speedRamp": 0.05,
+ "maxSpeedMul": 1.7,
+ "gravity": 420,
+ "flap": 125,
+ "regions": [
+  {
+   "id": "shelf-top",
+   "type": "solid",
+   "x": 0,
+   "y": 0,
+   "width": 1,
+   "height": 0.0922
+  },
+  {
+   "id": "post-left",
+   "type": "solid",
+   "x": 0,
+   "y": 0,
+   "width": 0.1011,
+   "height": 1
+  },
+  {
+   "id": "post-right",
+   "type": "solid",
+   "x": 0.931,
+   "y": 0,
+   "width": 0.069,
+   "height": 1
+  },
+  {
+   "id": "shelf-bottom",
+   "type": "solid",
+   "x": 0,
+   "y": 0.8464,
+   "width": 1,
+   "height": 0.1536
+  },
+  {
+   "id": "book-1",
+   "type": "solid",
+   "x": 0.1011,
+   "y": 0.3128,
+   "width": 0.0161,
+   "height": 0.5335
+  },
+  {
+   "id": "book-2",
+   "type": "solid",
+   "x": 0.1172,
+   "y": 0.3575,
+   "width": 0.0172,
+   "height": 0.4888
+  },
+  {
+   "id": "book-3",
+   "type": "solid",
+   "x": 0.1345,
+   "y": 0.3715,
+   "width": 0.0184,
+   "height": 0.4749
+  },
+  {
+   "id": "book-4",
+   "type": "solid",
+   "x": 0.1529,
+   "y": 0.2933,
+   "width": 0.0425,
+   "height": 0.5531
+  },
+  {
+   "id": "book-5",
+   "type": "solid",
+   "x": 0.1954,
+   "y": 0.3156,
+   "width": 0.0287,
+   "height": 0.5307
+  },
+  {
+   "id": "book-6",
+   "type": "solid",
+   "x": 0.2241,
+   "y": 0.2933,
+   "width": 0.0402,
+   "height": 0.5531
+  },
+  {
+   "id": "book-7",
+   "type": "solid",
+   "x": 0.2644,
+   "y": 0.3771,
+   "width": 0.0195,
+   "height": 0.4693
+  },
+  {
+   "id": "book-8",
+   "type": "solid",
+   "x": 0.2839,
+   "y": 0.3128,
+   "width": 0.0276,
+   "height": 0.5335
+  },
+  {
+   "id": "book-9",
+   "type": "solid",
+   "x": 0.3115,
+   "y": 0.3771,
+   "width": 0.0195,
+   "height": 0.4693
+  },
+  {
+   "id": "book-10",
+   "type": "solid",
+   "x": 0.331,
+   "y": 0.3268,
+   "width": 0.0276,
+   "height": 0.5196
+  },
+  {
+   "id": "book-11",
+   "type": "solid",
+   "x": 0.3586,
+   "y": 0.3101,
+   "width": 0.0299,
+   "height": 0.5363
+  },
+  {
+   "id": "book-12",
+   "type": "solid",
+   "x": 0.3885,
+   "y": 0.3101,
+   "width": 0.0448,
+   "height": 0.5363
+  },
+  {
+   "id": "book-13",
+   "type": "solid",
+   "x": 0.4333,
+   "y": 0.3017,
+   "width": 0.0345,
+   "height": 0.5447
+  },
+  {
+   "id": "book-14",
+   "type": "solid",
+   "x": 0.4678,
+   "y": 0.3128,
+   "width": 0.023,
+   "height": 0.5335
+  },
+  {
+   "id": "book-15",
+   "type": "solid",
+   "x": 0.4908,
+   "y": 0.3492,
+   "width": 0.0356,
+   "height": 0.4972
+  },
+  {
+   "id": "book-16",
+   "type": "solid",
+   "x": 0.5264,
+   "y": 0.3128,
+   "width": 0.0195,
+   "height": 0.5335
+  },
+  {
+   "id": "book-17",
+   "type": "solid",
+   "x": 0.546,
+   "y": 0.3156,
+   "width": 0.0264,
+   "height": 0.5307
+  },
+  {
+   "id": "book-18",
+   "type": "solid",
+   "x": 0.5724,
+   "y": 0.3017,
+   "width": 0.031,
+   "height": 0.5447
+  },
+  {
+   "id": "book-19",
+   "type": "solid",
+   "x": 0.6034,
+   "y": 0.3268,
+   "width": 0.023,
+   "height": 0.5196
+  },
+  {
+   "id": "book-20",
+   "type": "solid",
+   "x": 0.6264,
+   "y": 0.419,
+   "width": 0.0138,
+   "height": 0.4274
+  },
+  {
+   "id": "book-21",
+   "type": "solid",
+   "x": 0.6402,
+   "y": 0.3352,
+   "width": 0.0264,
+   "height": 0.5112
+  },
+  {
+   "id": "book-22",
+   "type": "solid",
+   "x": 0.6667,
+   "y": 0.2989,
+   "width": 0.0207,
+   "height": 0.5475
+  },
+  {
+   "id": "book-23",
+   "type": "solid",
+   "x": 0.6874,
+   "y": 0.3296,
+   "width": 0.0161,
+   "height": 0.5168
+  },
+  {
+   "id": "book-24",
+   "type": "solid",
+   "x": 0.7034,
+   "y": 0.3268,
+   "width": 0.0149,
+   "height": 0.5196
+  },
+  {
+   "id": "book-25",
+   "type": "solid",
+   "x": 0.7184,
+   "y": 0.3128,
+   "width": 0.023,
+   "height": 0.5335
+  },
+  {
+   "id": "book-26",
+   "type": "solid",
+   "x": 0.7414,
+   "y": 0.3073,
+   "width": 0.0195,
+   "height": 0.5391
+  },
+  {
+   "id": "book-27",
+   "type": "solid",
+   "x": 0.7609,
+   "y": 0.3296,
+   "width": 0.0172,
+   "height": 0.5168
+  },
+  {
+   "id": "book-28",
+   "type": "solid",
+   "x": 0.7782,
+   "y": 0.2793,
+   "width": 0.0184,
+   "height": 0.567
+  },
+  {
+   "id": "book-29",
+   "type": "solid",
+   "x": 0.7966,
+   "y": 0.1313,
+   "width": 0.0149,
+   "height": 0.7151
+  },
+  {
+   "id": "book-30",
+   "type": "solid",
+   "x": 0.8115,
+   "y": 0.2095,
+   "width": 0.008,
+   "height": 0.6369
+  },
+  {
+   "id": "book-31",
+   "type": "solid",
+   "x": 0.8195,
+   "y": 0.3212,
+   "width": 0.023,
+   "height": 0.5251
+  },
+  {
+   "id": "book-32",
+   "type": "solid",
+   "x": 0.8425,
+   "y": 0.3073,
+   "width": 0.0195,
+   "height": 0.5391
+  },
+  {
+   "id": "book-33",
+   "type": "solid",
+   "x": 0.8621,
+   "y": 0.3017,
+   "width": 0.0207,
+   "height": 0.5447
+  },
+  {
+   "id": "book-34",
+   "type": "solid",
+   "x": 0.8828,
+   "y": 0.3631,
+   "width": 0.0253,
+   "height": 0.4832
+  },
+  {
+   "id": "book-35",
+   "type": "solid",
+   "x": 0.908,
+   "y": 0.3017,
+   "width": 0.023,
+   "height": 0.5447
+  },
+  {
+   "id": "corridor",
+   "type": "nav",
+   "x": 0.1011,
+   "y": 0.0922,
+   "width": 0.6897,
+   "height": 0.1955
+  },
+  {
+   "id": "start",
+   "type": "start",
+   "x": 0.1149,
+   "y": 0.1899,
+   "width": 0,
+   "height": 0
+  },
+  {
+   "id": "goal",
+   "type": "goal",
+   "x": 0.7529,
+   "y": 0.0922,
+   "width": 0.0402,
+   "height": 0.2011
+  }
+ ]
+}

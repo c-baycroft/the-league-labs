@@ -1,6 +1,6 @@
 import config from './config.json';
 import { Rect, Region, View, contains, roundRect } from '../../shared/geometry';
-import { drawBackdrop, fitCanvas, loadImage } from '../../shared/image';
+import { Live, drawBackdrop, fitCanvas, loadImage } from '../../shared/image';
 import { Annotator, editorBar, loadSaved, onPress } from '../../shared/input';
 
 const STORE = 'league.piano.regions';
@@ -12,7 +12,7 @@ const PENT = [0, 2, 4, 7, 9];
 interface Note { book: number; lit: number; dead: number; hit: boolean }
 interface Spark { x: number; y: number; vx: number; vy: number; life: number }
 
-export function start(stage: HTMLElement) {
+export function start(stage: HTMLElement, live?: Live) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   stage.appendChild(canvas);
@@ -22,8 +22,9 @@ export function start(stage: HTMLElement) {
   let audio: AudioContext | null = null;
   let raf = 0, alive = true;
 
-  const saved = loadSaved(STORE);
-  const regions: Region[] = (saved ?? (config.regions as Region[])).filter(r => r.type === 'book');
+  const store = live ? STORE + '.live' : STORE;
+  const saved = live ? null : loadSaved(STORE);
+  const regions: Region[] = (live ? live.regions : (saved ?? (config.regions as Region[]))).filter(r => r.type === 'book');
   const ann = new Annotator(canvas, () => view, [{ kind: 'book', color: '#ffd66e' }], regions);
   const books = () => ann.regions.slice().sort((a, b) => a.x - b.x);
 
@@ -81,7 +82,7 @@ export function start(stage: HTMLElement) {
   }
 
   function begin() {
-    if (!audio) audio = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!audio) audio = live?.audio ?? new (window.AudioContext || (window as any).webkitAudioContext)();
     audio.resume();
     notes = []; noteCount = 0; lastBook = -1; score = 0; missedBook = -1; sparks = []; hitFlash.clear();
     t0 = clock();
@@ -145,11 +146,11 @@ export function start(stage: HTMLElement) {
   // restart button: the canvas press handler is below the overlay, so handle here too
   overUi.addEventListener('pointerdown', () => { if (state === 'over' && performance.now() - overAt > 250) begin(); });
 
-  const top = mk('topbar', `<div><button data-a="home">Home</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
-  const toggleEdit = editorBar(stage, ann, STORE, on => { ui.hidden = on || state !== 'ready'; if (on) state = 'ready'; });
+  const top = mk('topbar', `<div><button data-a="home">${live ? 'Rescan' : 'Home'}</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
+  const toggleEdit = editorBar(stage, ann, store, on => { ui.hidden = on || state !== 'ready'; if (on) state = 'ready'; });
   top.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).onclick = () => {
     const a = b.getAttribute('data-a');
-    if (a === 'home') location.hash = '';
+    if (a === 'home') { if (live) live.rescan(); else location.hash = ''; }
     if (a === 'rec') document.body.classList.toggle('rec');
     if (a === 'edit') toggleEdit(!ann.enabled);
   });
@@ -251,11 +252,14 @@ export function start(stage: HTMLElement) {
   }
   let lastTick = -1;
 
-  loadImage(config.image).then(i => { img = i; view = new View(i.naturalWidth, i.naturalHeight); });
+  (live ? Promise.resolve(live.image) : loadImage(config.image)).then(i => {
+    img = i; view = new View(i.naturalWidth, i.naturalHeight);
+    if (live?.audio && live.audio.state === 'running') begin();   // scanned: just start playing
+  });
   raf = requestAnimationFrame(draw);
 
   // test hook (used by automated browser tests)
   (window as any).__piano = { get state() { return state; }, get score() { return score; }, notes: () => notes, books, clock, view: () => view, canvas };
 
-  return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', onKey); audio?.close(); document.body.classList.remove('playing', 'rec'); };
+  return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', onKey); if (!live) audio?.close(); document.body.classList.remove('playing', 'rec'); };
 }

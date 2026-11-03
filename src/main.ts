@@ -5,6 +5,7 @@ const app = document.getElementById('app')!;
 const games: Record<string, () => Promise<Game>> = {
   piano: () => import('../games/piano-tiles/game'),
   flappy: () => import('../games/flappy-bird/game'),
+  scan: () => import('./scan'),
 };
 let dispose: (() => void) | null = null;
 
@@ -12,7 +13,7 @@ async function route() {
   dispose?.(); dispose = null;
   app.innerHTML = '';
   document.body.classList.remove('playing');
-  const key = location.hash.slice(1);
+  const key = location.hash.slice(1).split('?')[0];
   if (key in games) {
     const stage = document.createElement('div');
     stage.className = 'stage';
@@ -22,6 +23,7 @@ async function route() {
     return;
   }
   app.innerHTML = `<div class="home"><h1>THE LEAGUE LABS</h1><p>Real environments, real games</p>
+    <a href="#scan" style="background:#ffd66e;color:#1a1305;border-color:#ffd66e">Scan a bookshelf<small style="opacity:.75">Point, zoom in — it starts playing</small></a>
     <a href="#piano">Piano Tiles<small>Bookshelf Edition</small></a>
     <a href="#flappy">Flappy Bird<small>Bookshelf Edition</small></a></div>`;
 }

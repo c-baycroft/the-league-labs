@@ -1,6 +1,6 @@
 import config from './config.json';
 import { Region, Rect, View, circleHitsRect, clamp, contains } from '../../shared/geometry';
-import { drawBackdrop, fitCanvas, loadImage } from '../../shared/image';
+import { Live, drawBackdrop, fitCanvas, loadImage } from '../../shared/image';
 import { Annotator, editorBar, loadSaved, onPress } from '../../shared/input';
 
 const STORE = 'league.flappy.regions';
@@ -21,7 +21,8 @@ const FRAMES = [
 
 interface P { x: number; y: number; vx: number; vy: number; life: number; c: string; s: number }
 
-export function start(stage: HTMLElement) {
+export function start(stage: HTMLElement, live?: Live) {
+  const K = live?.scale ?? 1;   // physics scale: 1 for the library photo
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   stage.appendChild(canvas);
@@ -30,11 +31,12 @@ export function start(stage: HTMLElement) {
   let state: 'ready' | 'play' | 'dead' | 'won' = 'ready';
   let raf = 0, alive = true, last = 0, acc = 0, audio: AudioContext | null = null;
 
-  const saved = loadSaved(STORE);
+  const store = live ? STORE + '.live' : STORE;
+  const saved = live ? null : loadSaved(STORE);
   const ann = new Annotator(canvas, () => view, [
     { kind: 'solid', color: '#ff4d4d' }, { kind: 'nav', color: '#4dd2ff' },
     { kind: 'start', color: '#6bff6b', point: true }, { kind: 'goal', color: '#ffd66e' },
-  ], saved ?? (config.regions as Region[]));
+  ], live ? live.regions : (saved ?? (config.regions as Region[])));
 
   // solids / goal / start converted to IMAGE PIXELS once per frame source of truth (ann.regions may be edited)
   let solids: Rect[] = [], goal: Rect | null = null, startPt = { x: 100, y: 68 }, scorers: Rect[] = [];
@@ -43,13 +45,13 @@ export function start(stage: HTMLElement) {
     const px = (r: Rect): Rect => ({ x: r.x * iw, y: r.y * ih, width: r.width * iw, height: r.height * ih });
     const rs = ann.regions;
     solids = rs.filter(r => r.type === 'solid').map(px);
-    scorers = solids.filter(r => r.width < 0.06 * iw);              // book spines (not shelves / posts)
+    scorers = ann.regions.filter(r => r.type === 'solid' && r.id.startsWith('book')).map(px);   // book spines
     const g = rs.find(r => r.type === 'goal'); goal = g ? px(g) : null;
     const s = rs.find(r => r.type === 'start'); if (s) startPt = { x: s.x * iw, y: s.y * ih };
   }
 
   // ---- bird state (image pixels) ----
-  const R = config.birdRadius;
+  const R = config.birdRadius * K;
   let bx = 0, by = 0, vy = 0, t = 0, score = 0, best = +(localStorage.getItem(BEST) ?? 0);
   let flapT = -1, dieAt = 0, shake = 0, parts: P[] = [];
 
@@ -57,7 +59,7 @@ export function start(stage: HTMLElement) {
     rebuild();
     bx = startPt.x; by = startPt.y; vy = 0; t = 0; score = 0; acc = 0; parts = []; flapT = -1;
   }
-  const speedNow = () => config.speed * Math.min(config.maxSpeedMul, 1 + config.speedRamp * t);
+  const speedNow = () => config.speed * K * Math.min(config.maxSpeedMul, 1 + config.speedRamp * t);
 
   function beep(f0: number, f1: number, dur: number, type: OscillatorType = 'square', vol = 0.12) {
     if (!audio) return;
@@ -77,15 +79,15 @@ export function start(stage: HTMLElement) {
   function flap() {
     if (state === 'dead' || state === 'won') {
       if (performance.now() - dieAt > 300) {
-        reset(); state = 'play'; vy = -config.flap; beep(500, 800, .1);
+        reset(); state = 'play'; vy = -config.flap * K; beep(500, 800, .1);
         overUi.hidden = true; document.body.classList.add('playing');
       }
       return;
     }
-    if (!audio) audio = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!audio) audio = live?.audio ?? new (window.AudioContext || (window as any).webkitAudioContext)();
     audio.resume();
     if (state === 'ready') { state = 'play'; ui.hidden = true; document.body.classList.add('playing'); }
-    vy = -config.flap; flapT = t; beep(420, 760, 0.09);
+    vy = -config.flap * K; flapT = t; beep(420, 760, 0.09);
     for (let i = 0; i < 3; i++) parts.push({ x: bx - 3, y: by + 2, vx: -15 - Math.random() * 20, vy: 10 + Math.random() * 25, life: 1, c: '#fff6d6', s: 1 });
   }
 
@@ -115,7 +117,7 @@ export function start(stage: HTMLElement) {
   /** One fixed 60 Hz step. Movement is sub-stepped so the bird can never skip over a thin solid. */
   function step() {
     t += DT;
-    vy += config.gravity * DT;
+    vy += config.gravity * K * DT;
     const vx = speedNow();
     const dx = vx * DT, dy = vy * DT;
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / (R * 0.4)));
@@ -137,14 +139,14 @@ export function start(stage: HTMLElement) {
   const ui = mk('overlay passive', `<h2>Flappy Bird</h2><div class="sub">Tap to flap · fly the shelf gap to the green goal</div><div class="sub">Tap to start</div>`);
   const overUi = mk('overlay passive', `<h2></h2><div class="score" style="font-size:72px;font-weight:800">0</div><div class="best sub"></div><div class="sub">Tap to restart</div>`);
   overUi.hidden = true;
-  const top = mk('topbar', `<div><button data-a="home">Home</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
-  const toggleEdit = editorBar(stage, ann, STORE, on => {
+  const top = mk('topbar', `<div><button data-a="home">${live ? 'Rescan' : 'Home'}</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
+  const toggleEdit = editorBar(stage, ann, store, on => {
     ui.hidden = on || state !== 'ready';
     if (!on && img) { reset(); state = 'ready'; ui.hidden = false; overUi.hidden = true; }
   });
   top.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).onclick = () => {
     const a = b.getAttribute('data-a');
-    if (a === 'home') location.hash = '';
+    if (a === 'home') { if (live) live.rescan(); else location.hash = ''; }
     if (a === 'rec') document.body.classList.toggle('rec');
     if (a === 'edit') toggleEdit(!ann.enabled);
   });
@@ -157,7 +159,7 @@ export function start(stage: HTMLElement) {
     if (!img) return;
     const dtReal = Math.min(0.25, (ts - (last || ts)) / 1000); last = ts;
     if (state === 'play' && !ann.enabled) { acc += dtReal; while (acc >= DT && state === 'play') { acc -= DT; step(); } }
-    else if (state === 'ready') { by = startPt.y + Math.sin(ts / 260) * 4; }
+    else if (state === 'ready') { by = startPt.y + Math.sin(ts / 260) * 4 * K; }
 
     // camera: bird sits at ~30% of the screen, editing shows whole photo
     if (ann.enabled) view.contain(W, H);
@@ -181,7 +183,7 @@ export function start(stage: HTMLElement) {
     for (const p of parts) {
       p.x += p.vx * DT; p.y += p.vy * DT; p.vy += 120 * DT;
       ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c;
-      ctx.fillRect(view.px(p.x), view.py(p.y), p.s * view.scale, p.s * view.scale);
+      ctx.fillRect(view.px(p.x), view.py(p.y), p.s * K * view.scale, p.s * K * view.scale);
     }
     ctx.globalAlpha = 1;
 
@@ -203,7 +205,7 @@ export function start(stage: HTMLElement) {
     ctx.textAlign = 'left';
   }
 
-  loadImage(config.image).then(i => { img = i; view = new View(i.naturalWidth, i.naturalHeight); reset(); });
+  (live ? Promise.resolve(live.image) : loadImage(config.image)).then(i => { img = i; view = new View(i.naturalWidth, i.naturalHeight); reset(); });
   raf = requestAnimationFrame(frame);
 
   (window as any).__flappy = {
@@ -211,5 +213,5 @@ export function start(stage: HTMLElement) {
     solids: () => solids, goal: () => goal, flap, canvas, view: () => view, setBird: (x: number, y: number) => { bx = x; by = y; },
   };
 
-  return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', onKey); audio?.close(); document.body.classList.remove('playing', 'rec'); };
+  return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', onKey); if (!live) audio?.close(); document.body.classList.remove('playing', 'rec'); };
 }

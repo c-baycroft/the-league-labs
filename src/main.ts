@@ -29,3 +29,5 @@ async function route() {
 }
 addEventListener('hashchange', route);
 route();
+
+if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});

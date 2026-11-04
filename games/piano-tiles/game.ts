@@ -5,7 +5,7 @@ import { Live, Scene, photoScene } from '../../shared/scene';
 import { Annotator, editorBar, loadSaved, onPress } from '../../shared/input';
 
 const STORE = 'league.piano.regions';
-const BEST = 'league.piano.best';
+const BEST = 'league.piano.bestCombo';
 const COUNT_STEP = 0.7;   // seconds per countdown number
 const GRACE = 0.06;       // forgiveness after a note's deadline
 const PENT = [0, 2, 4, 7, 9];
@@ -20,7 +20,7 @@ export function start(stage: HTMLElement, live?: Live) {
 
   let scene: Scene, view: View, W = 1, H = 1;
   let pausedAt: number | null = null;   // live tracking lost: freeze the song
-  let state: 'ready' | 'count' | 'play' | 'over' = 'ready';
+  let state: 'ready' | 'count' | 'play' = 'ready';   // free-flowing: once started it never ends
   let audio: AudioContext | null = null;
   let raf = 0, alive = true;
 
@@ -34,21 +34,21 @@ export function start(stage: HTMLElement, live?: Live) {
   let notes: Note[] = [];
   let t0 = 0, noteCount = 0, lastBook = -1, nextLit = 0;
   let score = 0, best = +(localStorage.getItem(BEST) ?? 0);
-  let missedBook = -1, overAt = 0, shake = 0;
+  let combo = 0, iv = config.startInterval, shake = 0;
   let sparks: Spark[] = [];
-  const hitFlash = new Map<number, number>();
+  const hitFlash = new Map<number, number>(), missFlash = new Map<number, number>();
 
   const clock = () => (audio ? audio.currentTime : performance.now() / 1000);
 
   // ---- audio ----
-  function tone(book: number, when = 0) {
+  function tone(book: number, vol = 0.45) {
     if (!audio) return;
     const semis = PENT[book % 5] + 12 * Math.floor(book / 5);
     const f = 261.63 * Math.pow(2, semis / 12);
-    const t = audio.currentTime + when;
+    const t = audio.currentTime;
     const g = audio.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.45, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
     g.connect(audio.destination);
     for (const [mult, vol, type] of [[1, 1, 'triangle'], [2, 0.35, 'sine'], [3, 0.12, 'sine']] as const) {
@@ -71,14 +71,13 @@ export function start(stage: HTMLElement, live?: Live) {
     o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + 0.14);
   }
 
-  // ---- note generation ----
-  const interval = (n: number) => Math.max(config.minInterval, config.startInterval * Math.pow(config.speedUp, n));
+  // ---- note generation (tempo adapts: hits speed it up, misses ease it back) ----
   function genNote() {
     const n = books().length;
     let b: number;
     if (lastBook < 0) b = Math.floor(n / 2);
     else do { b = Math.max(0, Math.min(n - 1, lastBook + Math.round((Math.random() - 0.5) * 7))); } while (b === lastBook);
-    const iv = interval(noteCount++);
+    noteCount++;
     notes.push({ book: b, lit: nextLit, dead: nextLit + iv, hit: false });
     nextLit += iv; lastBook = b;
   }
@@ -86,23 +85,19 @@ export function start(stage: HTMLElement, live?: Live) {
   function begin() {
     if (!audio) audio = live?.audio ?? new (window.AudioContext || (window as any).webkitAudioContext)();
     audio.resume();
-    notes = []; noteCount = 0; lastBook = -1; score = 0; missedBook = -1; sparks = []; hitFlash.clear();
+    notes = []; noteCount = 0; lastBook = -1; score = 0; combo = 0; iv = config.startInterval; sparks = []; hitFlash.clear(); missFlash.clear();
     t0 = clock();
     nextLit = t0 + COUNT_STEP * 3 + 0.35;
     state = 'count';
     document.body.classList.add('playing');
-    ui.hidden = true; overUi.hidden = true;
+    ui.hidden = true;
   }
 
-  function gameOver(book: number) {
-    if (state !== 'play') return;
-    state = 'over'; missedBook = book; overAt = performance.now(); shake = 1;
-    buzz();
-    if (score > best) { best = score; localStorage.setItem(BEST, String(best)); }
-    document.body.classList.remove('playing');
-    overUi.querySelector('.score')!.textContent = String(score);
-    overUi.querySelector('.best')!.textContent = `Best ${best}`;
-    overUi.hidden = false;
+  function miss(n: Note) {
+    n.hit = true;                     // consumed; the flow carries on
+    combo = 0; shake = 0.35;
+    iv = Math.min(config.startInterval, iv * 1.12);
+    missFlash.set(n.book, performance.now());
   }
 
   function burst(r: Rect) {
@@ -115,39 +110,31 @@ export function start(stage: HTMLElement, live?: Live) {
 
   // ---- input ----
   onPress(canvas, (x, y) => {
-    if (ann.enabled || state === 'ready') return;
-    if (state === 'over') { if (performance.now() - overAt > 250) begin(); return; }
-    if (state !== 'play' || pausedAt !== null) return;
+    if (ann.enabled || state === 'ready' || pausedAt !== null) return;
     const now = clock();
     const p = view.toNorm(x, y);
     const bs = books();
     const idx = bs.findIndex(b => contains(b, p.x, p.y));
     if (idx < 0) return; // taps outside any book do nothing
     const target = notes.find(n => !n.hit && now >= n.lit - 0.08 && now <= n.dead + GRACE);
-    if (target && target.book === idx) {
-      target.hit = true; score++;
+    if (state === 'play' && target && target.book === idx) {
+      target.hit = true; score++; combo++;
+      if (combo > best) { best = combo; localStorage.setItem(BEST, String(best)); }
+      iv = Math.max(config.minInterval, iv * config.speedUp);
       tone(idx); hitFlash.set(idx, performance.now());
       burst(view.rect(bs[idx]));
-    } else gameOver(idx);
+    } else tone(idx, 0.25);           // every book is a key: off-beat taps still play
   });
   const onKey = (e: KeyboardEvent) => {
     if (ann.enabled) return;
-    if ((e.code === 'Space' || e.code === 'Enter') && (state === 'ready' || state === 'over')) {
-      if (state === 'over' && performance.now() - overAt < 250) return;
-      begin();
-    }
+    if ((e.code === 'Space' || e.code === 'Enter') && state === 'ready') begin();
   };
   addEventListener('keydown', onKey);
 
   // ---- UI ----
   const mk = (cls: string, html: string) => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; stage.appendChild(d); return d; };
-  const ui = mk('overlay', `<h2>Piano Tiles</h2><div class="sub">Tap the glowing book before it fades</div><button class="big">Start</button>`);
+  const ui = mk('overlay', `<h2>Piano Tiles</h2><div class="sub">Tap the glowing books · every book is a key</div><button class="big">Start</button>`);
   (ui.querySelector('button') as HTMLButtonElement).onclick = begin;
-  const overUi = mk('overlay', `<h2>Game Over</h2><div class="score" style="font-size:72px;font-weight:800">0</div><div class="best sub"></div><button class="big">Restart</button><div class="sub">or tap anywhere</div>`);
-  overUi.hidden = true;
-  // restart button: the canvas press handler is below the overlay, so handle here too
-  overUi.addEventListener('pointerdown', () => { if (state === 'over' && performance.now() - overAt > 250) begin(); });
-
   const top = mk('topbar', `<div><button data-a="home">${live ? 'Rescan' : 'Home'}</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
   const toggleEdit = editorBar(stage, ann, store, on => { ui.hidden = on || state !== 'ready'; if (on) state = 'ready'; });
   top.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).onclick = () => {
@@ -183,15 +170,15 @@ export function start(stage: HTMLElement, live?: Live) {
       while (notes.filter(n => !n.hit && n.lit >= now - 0.001).length < 2) genNote();
       if (state === 'count' && now >= t0 + COUNT_STEP * 3) state = 'play';
       if (state === 'play') {
-        const miss = notes.find(n => !n.hit && now > n.dead + GRACE);
-        if (miss) gameOver(miss.book);
+        for (const n of notes) if (!n.hit && now > n.dead + GRACE) miss(n);
+        notes = notes.filter(n => n.dead > now - 2);
       }
     }
 
     ctx.save();
     if (shake > 0) { ctx.translate((Math.random() - 0.5) * 14 * shake, (Math.random() - 0.5) * 14 * shake); shake = Math.max(0, shake - 0.06); }
     scene.draw(ctx, view, W, H);
-    ctx.fillStyle = state === 'ready' || state === 'over' ? 'rgba(0,0,0,.45)' : `rgba(0,0,0,${scene.live ? 0.18 : 0.3})`;
+    ctx.fillStyle = state === 'ready' ? 'rgba(0,0,0,.45)' : `rgba(0,0,0,${scene.live ? 0.18 : 0.3})`;
     ctx.fillRect(0, 0, W, H);
 
     // upcoming hint + active glow
@@ -228,10 +215,11 @@ export function start(stage: HTMLElement, live?: Live) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(160,255,200,${a * 0.7})`;
       roundRect(ctx, r, 3); ctx.fill(); ctx.restore();
     }
-    if (state === 'over' && missedBook >= 0 && bs[missedBook]) {
-      const r = view.rect(bs[missedBook]);
-      ctx.fillStyle = 'rgba(255,40,40,.55)'; roundRect(ctx, r, 3); ctx.fill();
-      ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 3; roundRect(ctx, r, 3); ctx.stroke();
+    for (const [i, t] of missFlash) {
+      const a = 1 - (performance.now() - t) / 500;
+      if (a <= 0 || !bs[i]) { missFlash.delete(i); continue; }
+      const r = view.rect(bs[i]);
+      ctx.strokeStyle = `rgba(255,90,90,${a})`; ctx.lineWidth = 3; roundRect(ctx, r, 3); ctx.stroke();
     }
     // sparks
     const dt = 1 / 60;
@@ -248,7 +236,9 @@ export function start(stage: HTMLElement, live?: Live) {
     ctx.textAlign = 'center';
     if (state === 'play' || state === 'count') {
       ctx.font = '800 64px system-ui'; ctx.fillStyle = '#fff'; ctx.shadowColor = '#000'; ctx.shadowBlur = 12;
-      ctx.fillText(String(score), W / 2, 90); ctx.shadowBlur = 0;
+      ctx.fillText(String(score), W / 2, 90);
+      if (combo >= 3) { ctx.font = '700 22px system-ui'; ctx.fillStyle = '#ffd66e'; ctx.fillText(`${combo} in a row`, W / 2, 122); }
+      ctx.shadowBlur = 0;
     }
     if (state === 'count') {
       const n = 3 - Math.floor((now - t0) / COUNT_STEP);
@@ -274,7 +264,7 @@ export function start(stage: HTMLElement, live?: Live) {
   raf = requestAnimationFrame(draw);
 
   // test hook (used by automated browser tests)
-  (window as any).__piano = { get state() { return state; }, get score() { return score; }, notes: () => notes, books, clock, view: () => view, canvas, get paused() { return pausedAt !== null; } };
+  (window as any).__piano = { get state() { return state; }, get score() { return score; }, get combo() { return combo; }, get iv() { return iv; }, notes: () => notes, books, clock, view: () => view, canvas, get paused() { return pausedAt !== null; } };
 
   return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', onKey); if (!live) audio?.close(); document.body.classList.remove('playing', 'rec'); };
 }

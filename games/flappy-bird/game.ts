@@ -1,11 +1,12 @@
 import config from './config.json';
-import { Region, Rect, View, circleHitsRect, clamp, contains } from '../../shared/geometry';
+import { Region, Rect, View, clamp, contains } from '../../shared/geometry';
 import { fitCanvas, loadImage } from '../../shared/image';
 import { Live, Scene, photoScene } from '../../shared/scene';
 import { Annotator, editorBar, loadSaved, onPress } from '../../shared/input';
 
 const STORE = 'league.flappy.regions';
-const BEST = 'league.flappy.best';
+const BEST = 'league.flappy.bestStreak';
+const BOUNCE = 0.45;           // restitution when the bird hits a book or shelf
 const DT = 1 / 60;            // fixed physics step
 
 // 12x9 pixel-art bird, two wing frames. . = empty, o outline, y body, w white, r beak, k eye
@@ -29,7 +30,7 @@ export function start(stage: HTMLElement, live?: Live) {
   stage.appendChild(canvas);
 
   let scene: Scene, view: View, W = 1, H = 1;
-  let state: 'ready' | 'play' | 'dead' | 'won' = 'ready';
+  let state: 'ready' | 'play' = 'ready';   // free-flowing: no death, bump and keep going
   let raf = 0, alive = true, last = 0, acc = 0, audio: AudioContext | null = null;
 
   const store = live ? STORE + '.live' : STORE;
@@ -54,12 +55,12 @@ export function start(stage: HTMLElement, live?: Live) {
 
   // ---- bird state (image pixels) ----
   const R = config.birdRadius * K;
-  let bx = 0, by = 0, vy = 0, t = 0, score = 0, best = +(localStorage.getItem(BEST) ?? 0);
-  let flapT = -1, dieAt = 0, shake = 0, parts: P[] = [];
+  let bx = 0, by = 0, vx = 0, vy = 0, t = 0, score = 0, streak = 0, lapPassed = 0, laps = 0, best = +(localStorage.getItem(BEST) ?? 0);
+  let flapT = -1, lastBump = -1, shake = 0, parts: P[] = [];
 
   function reset() {
     rebuild();
-    bx = startPt.x; by = startPt.y; vy = 0; t = 0; score = 0; acc = 0; parts = []; flapT = -1;
+    bx = startPt.x; by = startPt.y; vx = 0; vy = 0; t = 0; score = 0; streak = 0; lapPassed = 0; laps = 0; acc = 0; parts = []; flapT = -1;
   }
   const speedNow = () => config.speed * K * Math.min(config.maxSpeedMul, 1 + config.speedRamp * t);
 
@@ -79,13 +80,6 @@ export function start(stage: HTMLElement, live?: Live) {
   }
 
   function flap() {
-    if (state === 'dead' || state === 'won') {
-      if (performance.now() - dieAt > 300) {
-        reset(); state = 'play'; vy = -config.flap * K; beep(500, 800, .1);
-        overUi.hidden = true; document.body.classList.add('playing');
-      }
-      return;
-    }
     if (!audio) audio = live?.audio ?? new (window.AudioContext || (window as any).webkitAudioContext)();
     audio.resume();
     if (state === 'ready') { state = 'play'; ui.hidden = true; document.body.classList.add('playing'); }
@@ -93,42 +87,59 @@ export function start(stage: HTMLElement, live?: Live) {
     for (let i = 0; i < 3; i++) parts.push({ x: bx - 3, y: by + 2, vx: -15 - Math.random() * 20, vy: 10 + Math.random() * 25, life: 1, c: '#fff6d6', s: 1 });
   }
 
-  function die() {
-    state = 'dead'; dieAt = performance.now(); shake = 1;
-    document.body.classList.remove('playing');
-    puff(30, '#ffd23f', 110); puff(12, '#fff', 80);
-    beep(220, 50, 0.4, 'sawtooth', 0.2);
-    if (score > best) { best = score; localStorage.setItem(BEST, String(best)); }
-    overUi.querySelector('h2')!.textContent = 'Crashed';
-    overUi.querySelector('.score')!.textContent = String(score);
-    overUi.querySelector('.best')!.textContent = `Best ${best}`;
-    overUi.hidden = false;
+  function bump() {
+    if (t - lastBump < 0.15) return;
+    lastBump = t; streak = 0; shake = 0.4;
+    beep(180, 90, 0.12, 'square', 0.15);
+    puff(6, '#fff6d6', 50);
   }
-  function win() {
-    state = 'won'; dieAt = performance.now();
-    document.body.classList.remove('playing');
-    beep(520, 1040, 0.5, 'triangle', 0.25);
-    puff(40, '#9dffb0', 120);
-    if (score > best) { best = score; localStorage.setItem(BEST, String(best)); }
-    overUi.querySelector('h2')!.textContent = 'You made it!';
-    overUi.querySelector('.score')!.textContent = String(score);
-    overUi.querySelector('.best')!.textContent = `Best ${best}`;
-    overUi.hidden = false;
+  function lap() {
+    laps++; lapPassed = 0;
+    puff(25, '#9dffb0', 90);
+    beep(520, 1040, 0.35, 'triangle', 0.2);
+    bx = startPt.x; by = startPt.y; vy = Math.min(vy, 0);
   }
 
-  /** One fixed 60 Hz step. Movement is sub-stepped so the bird can never skip over a thin solid. */
+  /** Push the bird out of anything solid and bounce its velocity off the contact normal. */
+  function collide() {
+    let hit = false;
+    for (const s of solids) {
+      const nx = clamp(bx, s.x, s.x + s.width), ny = clamp(by, s.y, s.y + s.height);
+      let dx = bx - nx, dy = by - ny, d = Math.hypot(dx, dy);
+      if (d >= R) continue;
+      if (d === 0) {               // centre inside the rect: leave by the nearest face
+        const l = bx - s.x, r = s.x + s.width - bx, u = by - s.y, b = s.y + s.height - by, m = Math.min(l, r, u, b);
+        dx = m === l ? -1 : m === r ? 1 : 0; dy = m === u ? -1 : m === b ? 1 : 0; d = 0;
+        bx += dx * (m + R); by += dy * (m + R);
+      } else {
+        dx /= d; dy /= d;
+        bx += dx * (R - d); by += dy * (R - d);
+      }
+      const vn = vx * dx + vy * dy;
+      if (vn < 0) { vx -= (1 + BOUNCE) * vn * dx; vy -= (1 + BOUNCE) * vn * dy; }
+      hit = true;
+    }
+    if (by - R < 0) { by = R; vy = Math.abs(vy) * BOUNCE; hit = true; }
+    if (by + R > scene.h) { by = scene.h - R; vy = -Math.abs(vy) * BOUNCE; hit = true; }
+    if (hit) bump();
+  }
+
+  /** One fixed 60 Hz step. Movement is sub-stepped so the bird can never skip through a thin solid. */
   function step() {
     t += DT;
     vy += config.gravity * K * DT;
-    const vx = speedNow();
-    const dx = vx * DT, dy = vy * DT;
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / (R * 0.4)));
+    vx += (speedNow() - vx) * Math.min(1, 2.5 * DT);     // wings push back up to cruising speed
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(vx), Math.abs(vy)) * DT / (R * 0.4)));
     for (let i = 0; i < n; i++) {
-      bx += dx / n; by += dy / n;
-      if (by - R < 0 || by + R > scene.h || solids.some(s => circleHitsRect(bx, by, R, s))) return die();
-      if (goal && contains(goal, bx, by)) return win();
+      bx += vx * DT / n; by += vy * DT / n;
+      collide();
     }
-    score = scorers.filter(s => s.x + s.width < bx - R).length;
+    const passed = scorers.filter(s => s.x + s.width < bx - R).length;
+    if (passed > lapPassed) {
+      score += passed - lapPassed; streak += passed - lapPassed; lapPassed = passed;
+      if (streak > best) { best = streak; localStorage.setItem(BEST, String(best)); }
+    }
+    if (goal && contains(goal, bx, by)) lap();            // end of the gap: loop round and keep flying
   }
 
   // ---- input ----
@@ -138,13 +149,11 @@ export function start(stage: HTMLElement, live?: Live) {
 
   // ---- UI ----
   const mk = (cls: string, html: string) => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; stage.appendChild(d); return d; };
-  const ui = mk('overlay passive', `<h2>Flappy Bird</h2><div class="sub">Tap to flap · fly the shelf gap to the green goal</div><div class="sub">Tap to start</div>`);
-  const overUi = mk('overlay passive', `<h2></h2><div class="score" style="font-size:72px;font-weight:800">0</div><div class="best sub"></div><div class="sub">Tap to restart</div>`);
-  overUi.hidden = true;
+  const ui = mk('overlay passive', `<h2>Flappy Bird</h2><div class="sub">Tap to flap through the gap over the books</div><div class="sub">Tap to start</div>`);
   const top = mk('topbar', `<div><button data-a="home">${live ? 'Rescan' : 'Home'}</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
   const toggleEdit = editorBar(stage, ann, store, on => {
     ui.hidden = on || state !== 'ready';
-    if (!on && scene) { reset(); state = 'ready'; ui.hidden = false; overUi.hidden = true; }
+    if (!on && scene) { reset(); state = 'ready'; ui.hidden = false; }
   });
   top.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).onclick = () => {
     const a = b.getAttribute('data-a');
@@ -197,8 +206,8 @@ export function start(stage: HTMLElement, live?: Live) {
     }
     ctx.globalAlpha = 1;
 
-    // bird (hidden after crash; hitbox is the circle of radius R drawn faintly while annotating)
-    if (state !== 'dead') {
+    // bird
+    {
       const sw = R * 2.6 * view.scale, sh = sw * 9 / 12;
       const f = FRAMES[flapT >= 0 && t - flapT < 0.14 ? 1 : 0];
       ctx.save(); ctx.translate(view.px(bx), view.py(by)); ctx.rotate(clamp(vy / 260, -0.5, 0.9));
@@ -210,7 +219,9 @@ export function start(stage: HTMLElement, live?: Live) {
     ctx.textAlign = 'center';
     if (state === 'play' || state === 'ready') {
       ctx.font = '800 64px system-ui'; ctx.fillStyle = '#fff'; ctx.shadowColor = '#000'; ctx.shadowBlur = 12;
-      ctx.fillText(String(score), W / 2, 90); ctx.shadowBlur = 0;
+      ctx.fillText(String(score), W / 2, 90);
+      if (streak >= 3) { ctx.font = '700 22px system-ui'; ctx.fillStyle = '#ffd66e'; ctx.fillText(`${streak} clean`, W / 2, 122); }
+      ctx.shadowBlur = 0;
     }
     if (paused && state === 'play') {
       ctx.font = '700 20px system-ui'; ctx.fillStyle = '#fff'; ctx.shadowColor = '#000'; ctx.shadowBlur = 10;
@@ -223,7 +234,7 @@ export function start(stage: HTMLElement, live?: Live) {
   raf = requestAnimationFrame(frame);
 
   (window as any).__flappy = {
-    get state() { return state; }, get score() { return score; }, get bird() { return { x: bx, y: by, vy, t }; },
+    get state() { return state; }, get score() { return score; }, get streak() { return streak; }, get laps() { return laps; }, get bird() { return { x: bx, y: by, vx, vy, t }; },
     solids: () => solids, goal: () => goal, flap, canvas, view: () => view, setBird: (x: number, y: number) => { bx = x; by = y; },
   };
 

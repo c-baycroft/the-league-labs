@@ -25,6 +25,13 @@ export class View {
     this.scale = s; this.ox = -camX * s; this.oy = 0;
   }
 
+  /** Centre world rect r on screen: 'cover' fills the screen, 'contain' keeps all of r visible. */
+  fit(r: Rect, w: number, h: number, mode: 'cover' | 'contain' = 'cover') {
+    this.scale = mode === 'cover' ? Math.max(w / r.width, h / r.height) : Math.min(w / r.width, h / r.height);
+    this.ox = w / 2 - (r.x + r.width / 2) * this.scale;
+    this.oy = h / 2 - (r.y + r.height / 2) * this.scale;
+  }
+
   visibleImageWidth(w: number) { return w / this.scale; }
 
   /** normalized -> screen */

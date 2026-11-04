@@ -1,6 +1,7 @@
 import config from './config.json';
 import { Rect, Region, View, contains, roundRect } from '../../shared/geometry';
-import { Live, drawBackdrop, fitCanvas, loadImage } from '../../shared/image';
+import { fitCanvas, loadImage } from '../../shared/image';
+import { Live, Scene, photoScene } from '../../shared/scene';
 import { Annotator, editorBar, loadSaved, onPress } from '../../shared/input';
 
 const STORE = 'league.piano.regions';
@@ -17,7 +18,8 @@ export function start(stage: HTMLElement, live?: Live) {
   const ctx = canvas.getContext('2d')!;
   stage.appendChild(canvas);
 
-  let img: HTMLImageElement, view: View, W = 1, H = 1;
+  let scene: Scene, view: View, W = 1, H = 1;
+  let pausedAt: number | null = null;   // live tracking lost: freeze the song
   let state: 'ready' | 'count' | 'play' | 'over' = 'ready';
   let audio: AudioContext | null = null;
   let raf = 0, alive = true;
@@ -115,7 +117,7 @@ export function start(stage: HTMLElement, live?: Live) {
   onPress(canvas, (x, y) => {
     if (ann.enabled || state === 'ready') return;
     if (state === 'over') { if (performance.now() - overAt > 250) begin(); return; }
-    if (state !== 'play') return;
+    if (state !== 'play' || pausedAt !== null) return;
     const now = clock();
     const p = view.toNorm(x, y);
     const bs = books();
@@ -160,13 +162,24 @@ export function start(stage: HTMLElement, live?: Live) {
     if (!alive) return;
     raf = requestAnimationFrame(draw);
     ({ w: W, h: H } = fitCanvas(canvas, ctx));
-    if (!img) return;
-    view.contain(W, H);
-    const now = clock();
+    if (!scene) return;
+    scene.update();
+    if (scene.live && !ann.enabled) view.fit(scene.window(), W, H, 'contain'); else view.contain(W, H);
+    const realNow = clock();
     const bs = books();
 
-    // logic: keep 2 notes queued, detect misses
+    // live: if the camera loses the shelf, pause (shift the whole song later) instead of misjudging taps
     if (state === 'count' || state === 'play') {
+      if (scene.lost()) { if (pausedAt === null) pausedAt = realNow; }
+      else if (pausedAt !== null) {
+        const d = realNow - pausedAt;
+        notes.forEach(n => { n.lit += d; n.dead += d; }); nextLit += d; t0 += d; pausedAt = null;
+      }
+    }
+    const now = pausedAt ?? realNow;
+
+    // logic: keep 2 notes queued, detect misses
+    if ((state === 'count' || state === 'play') && pausedAt === null) {
       while (notes.filter(n => !n.hit && n.lit >= now - 0.001).length < 2) genNote();
       if (state === 'count' && now >= t0 + COUNT_STEP * 3) state = 'play';
       if (state === 'play') {
@@ -177,11 +190,9 @@ export function start(stage: HTMLElement, live?: Live) {
 
     ctx.save();
     if (shake > 0) { ctx.translate((Math.random() - 0.5) * 14 * shake, (Math.random() - 0.5) * 14 * shake); shake = Math.max(0, shake - 0.06); }
-    drawBackdrop(ctx, img, W, H);
-    ctx.drawImage(img, view.ox, view.oy, img.naturalWidth * view.scale, img.naturalHeight * view.scale);
-    const imgR = { x: view.ox, y: view.oy, width: img.naturalWidth * view.scale, height: img.naturalHeight * view.scale };
-    ctx.fillStyle = state === 'ready' || state === 'over' ? 'rgba(0,0,0,.45)' : 'rgba(0,0,0,.30)';
-    ctx.fillRect(imgR.x, imgR.y, imgR.width, imgR.height);
+    scene.draw(ctx, view, W, H);
+    ctx.fillStyle = state === 'ready' || state === 'over' ? 'rgba(0,0,0,.45)' : `rgba(0,0,0,${scene.live ? 0.18 : 0.3})`;
+    ctx.fillRect(0, 0, W, H);
 
     // upcoming hint + active glow
     const pending = notes.filter(n => !n.hit && n.dead + GRACE >= now);
@@ -248,18 +259,22 @@ export function start(stage: HTMLElement, live?: Live) {
         ctx.shadowColor = '#000'; ctx.shadowBlur = 16; ctx.fillText(String(n), W / 2, H / 2 + 30); ctx.shadowBlur = 0;
       } else if (lastTick !== 0) { lastTick = 0; tick(true); }
     }
+    if (pausedAt !== null) {
+      ctx.font = '700 20px system-ui'; ctx.fillStyle = '#fff'; ctx.shadowColor = '#000'; ctx.shadowBlur = 10;
+      ctx.fillText('Paused — point back at the shelf', W / 2, H - 40); ctx.shadowBlur = 0;
+    }
     ctx.textAlign = 'left';
   }
   let lastTick = -1;
 
-  (live ? Promise.resolve(live.image) : loadImage(config.image)).then(i => {
-    img = i; view = new View(i.naturalWidth, i.naturalHeight);
+  (live ? Promise.resolve(live.scene) : loadImage(config.image).then(photoScene)).then(sc => {
+    scene = sc; view = new View(sc.w, sc.h);
     if (live?.audio && live.audio.state === 'running') begin();   // scanned: just start playing
   });
   raf = requestAnimationFrame(draw);
 
   // test hook (used by automated browser tests)
-  (window as any).__piano = { get state() { return state; }, get score() { return score; }, notes: () => notes, books, clock, view: () => view, canvas };
+  (window as any).__piano = { get state() { return state; }, get score() { return score; }, notes: () => notes, books, clock, view: () => view, canvas, get paused() { return pausedAt !== null; } };
 
   return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', onKey); if (!live) audio?.close(); document.body.classList.remove('playing', 'rec'); };
 }

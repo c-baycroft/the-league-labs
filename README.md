@@ -11,15 +11,23 @@ npm run dev      # then open the printed URL (use --host to test on your phone)
 - **Flappy Bird** (`#flappy`): fixed 60 Hz physics in photo-pixel space, sub-stepped collision (no tunnelling) against annotated solids. The camera scrolls with the bird. Score = book spines passed; reach the green goal to win.
 
 ## Scan a bookshelf (phone)
-```bash
-npm run dev          # https + LAN: open the printed "Network" https:// URL on your phone, accept the self-signed cert warning
-```
-Home -> **Scan a bookshelf**. Pick Piano Tiles or Flappy Bird, point at a shelf, pinch (or slide) to zoom. When the detector sees a stable result for ~1 s it freezes the frame and the game starts on that snapshot.
-- Piano: the 10 book spines nearest the centre of your zoomed view become keys.
-- Flappy: needs an open gap between a shelf board above and the book tops below. If there isn't one it says so and won't start (it never invents openings). The bird is sized from the book width.
-- **Play now** forces a start; **Upload photo** works without a camera (or on desktop); **Rescan** returns to the camera; **Annotate** fixes any box the detector got wrong.
-- Phone cameras require HTTPS. `npm run dev:local` is plain http for desktop-only testing. For a permanent link, `npm run build` and host `dist/` on any HTTPS static host (Netlify, Vercel, GitHub Pages).
-- Detection is plain edge analysis (shared/detect.ts): works best on straight-on, evenly lit shelves; the game plays on a frozen snapshot, not tracked live video.
+Install: open **https://c-baycroft.github.io/the-league-labs/** on your phone -> Add to Home Screen.
+
+1. **Point at the whole shelf.** It finds the shelf and locks automatically once you're steady (or tap *Lock shelf*).
+2. **Pinch to zoom in.** The camera stays live; detected books stay glued to the real ones (motion tracking).
+   Piano starts when 5–12 books fill the screen; Flappy when you've zoomed in on the gap above the books.
+3. **Play on the live camera.** Hand shake is stabilised; if the camera loses the shelf the game pauses instead of guessing.
+   Restarts reuse the lock — *Rescan* only when you move to a new shelf.
+
+How it works (all on-device, no ML, ~2 ms/frame):
+- `shared/detect.ts` — shelf boards from long horizontal edges; spine boundaries from column colour changes, dark seams and long vertical edges averaged over the shelf height (so spine text doesn't split books); book tops from colour change below the board.
+- `shared/track.ts` — coarse-to-fine block matching against the locked frame (sub-pixel, exposure-normalised).
+- `shared/scene.ts` — games run in the locked frame's coordinates; the live video is drawn at the tracked offset, so geometry and video stay aligned.
+- Zoom is digital (a crop of the camera frame), so the zoom level is known exactly.
+- Flappy only plays where there is a real gap between book tops and the board above; otherwise it says so.
+
+Limits: tracking handles shake, small pans and small tilts — not walking closer/further or big rotations (it pauses; rescan).
+Dev: `npm run dev` (https, LAN) or `npm run dev:local`. Test without a camera: `#scan?photo=library/piano-bookshelf.jpg&shake=1` simulates a handheld camera.
 
 ## Controls
 - **9:16** button: recording layout (portrait stage, HUD fades during play).

@@ -1,6 +1,7 @@
 import config from './config.json';
 import { Region, Rect, View, circleHitsRect, clamp, contains } from '../../shared/geometry';
-import { Live, drawBackdrop, fitCanvas, loadImage } from '../../shared/image';
+import { fitCanvas, loadImage } from '../../shared/image';
+import { Live, Scene, photoScene } from '../../shared/scene';
 import { Annotator, editorBar, loadSaved, onPress } from '../../shared/input';
 
 const STORE = 'league.flappy.regions';
@@ -27,7 +28,7 @@ export function start(stage: HTMLElement, live?: Live) {
   const ctx = canvas.getContext('2d')!;
   stage.appendChild(canvas);
 
-  let img: HTMLImageElement, view: View, W = 1, H = 1;
+  let scene: Scene, view: View, W = 1, H = 1;
   let state: 'ready' | 'play' | 'dead' | 'won' = 'ready';
   let raf = 0, alive = true, last = 0, acc = 0, audio: AudioContext | null = null;
 
@@ -39,14 +40,15 @@ export function start(stage: HTMLElement, live?: Live) {
   ], live ? live.regions : (saved ?? (config.regions as Region[])));
 
   // solids / goal / start converted to IMAGE PIXELS once per frame source of truth (ann.regions may be edited)
-  let solids: Rect[] = [], goal: Rect | null = null, startPt = { x: 100, y: 68 }, scorers: Rect[] = [];
+  let solids: Rect[] = [], goal: Rect | null = null, corridor: Rect | null = null, startPt = { x: 100, y: 68 }, scorers: Rect[] = [];
   function rebuild() {
-    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const iw = scene.w, ih = scene.h;
     const px = (r: Rect): Rect => ({ x: r.x * iw, y: r.y * ih, width: r.width * iw, height: r.height * ih });
     const rs = ann.regions;
     solids = rs.filter(r => r.type === 'solid').map(px);
     scorers = ann.regions.filter(r => r.type === 'solid' && r.id.startsWith('book')).map(px);   // book spines
     const g = rs.find(r => r.type === 'goal'); goal = g ? px(g) : null;
+    const c = rs.find(r => r.type === 'nav'); corridor = c ? px(c) : null;
     const s = rs.find(r => r.type === 'start'); if (s) startPt = { x: s.x * iw, y: s.y * ih };
   }
 
@@ -123,7 +125,7 @@ export function start(stage: HTMLElement, live?: Live) {
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / (R * 0.4)));
     for (let i = 0; i < n; i++) {
       bx += dx / n; by += dy / n;
-      if (by - R < 0 || by + R > img.naturalHeight || solids.some(s => circleHitsRect(bx, by, R, s))) return die();
+      if (by - R < 0 || by + R > scene.h || solids.some(s => circleHitsRect(bx, by, R, s))) return die();
       if (goal && contains(goal, bx, by)) return win();
     }
     score = scorers.filter(s => s.x + s.width < bx - R).length;
@@ -142,7 +144,7 @@ export function start(stage: HTMLElement, live?: Live) {
   const top = mk('topbar', `<div><button data-a="home">${live ? 'Rescan' : 'Home'}</button></div><div><button data-a="rec">9:16</button><button data-a="edit">Annotate</button></div>`);
   const toggleEdit = editorBar(stage, ann, store, on => {
     ui.hidden = on || state !== 'ready';
-    if (!on && img) { reset(); state = 'ready'; ui.hidden = false; overUi.hidden = true; }
+    if (!on && scene) { reset(); state = 'ready'; ui.hidden = false; overUi.hidden = true; }
   });
   top.querySelectorAll('button').forEach(b => (b as HTMLButtonElement).onclick = () => {
     const a = b.getAttribute('data-a');
@@ -156,19 +158,27 @@ export function start(stage: HTMLElement, live?: Live) {
     if (!alive) return;
     raf = requestAnimationFrame(frame);
     ({ w: W, h: H } = fitCanvas(canvas, ctx));
-    if (!img) return;
+    if (!scene) return;
+    scene.update();
+    const paused = scene.lost();      // live: camera lost the shelf -> freeze physics, never guess
     const dtReal = Math.min(0.25, (ts - (last || ts)) / 1000); last = ts;
-    if (state === 'play' && !ann.enabled) { acc += dtReal; while (acc >= DT && state === 'play') { acc -= DT; step(); } }
+    if (state === 'play' && !ann.enabled && !paused) { acc += dtReal; while (acc >= DT && state === 'play') { acc -= DT; step(); } }
     else if (state === 'ready') { by = startPt.y + Math.sin(ts / 260) * 4 * K; }
 
     // camera: bird sits at ~30% of the screen, editing shows whole photo
     if (ann.enabled) view.contain(W, H);
-    else view.cover(W, H, bx - view.visibleImageWidth(W) * 0.3);
+    else if (scene.live) {
+      // follow the bird across the locked shelf at the zoom the player chose; height framing follows the camera
+      // keep the flight corridor (plus the book tops under it) in frame; zoom sets how much is visible
+      const win = scene.window();
+      const vh = Math.max(win.height, corridor ? corridor.height * 2.2 : 0), vw = vh * W / H;
+      const cy = corridor ? corridor.y + corridor.height * 0.85 : win.y + win.height / 2;
+      view.fit({ x: clamp(bx - vw * 0.3, 0, Math.max(0, scene.w - vw)), y: clamp(cy - vh / 2, 0, Math.max(0, scene.h - vh)), width: vw, height: vh }, W, H);
+    } else view.cover(W, H, bx - view.visibleImageWidth(W) * 0.3);
 
     ctx.save();
     if (shake > 0) { ctx.translate((Math.random() - 0.5) * 12 * shake, (Math.random() - 0.5) * 12 * shake); shake = Math.max(0, shake - 0.05); }
-    drawBackdrop(ctx, img, W, H);
-    ctx.drawImage(img, view.ox, view.oy, img.naturalWidth * view.scale, img.naturalHeight * view.scale);
+    scene.draw(ctx, view, W, H);
 
     // goal marker (a real gap in the photo, so it's drawn as a soft glow, not a fake object)
     if (goal && !ann.enabled) {
@@ -202,10 +212,14 @@ export function start(stage: HTMLElement, live?: Live) {
       ctx.font = '800 64px system-ui'; ctx.fillStyle = '#fff'; ctx.shadowColor = '#000'; ctx.shadowBlur = 12;
       ctx.fillText(String(score), W / 2, 90); ctx.shadowBlur = 0;
     }
+    if (paused && state === 'play') {
+      ctx.font = '700 20px system-ui'; ctx.fillStyle = '#fff'; ctx.shadowColor = '#000'; ctx.shadowBlur = 10;
+      ctx.fillText('Paused — point back at the shelf', W / 2, H - 40); ctx.shadowBlur = 0;
+    }
     ctx.textAlign = 'left';
   }
 
-  (live ? Promise.resolve(live.image) : loadImage(config.image)).then(i => { img = i; view = new View(i.naturalWidth, i.naturalHeight); reset(); });
+  (live ? Promise.resolve(live.scene) : loadImage(config.image).then(photoScene)).then(sc => { scene = sc; view = new View(sc.w, sc.h); reset(); });
   raf = requestAnimationFrame(frame);
 
   (window as any).__flappy = {

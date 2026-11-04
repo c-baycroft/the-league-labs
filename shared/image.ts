@@ -33,18 +33,3 @@ export function drawBackdrop(ctx: CanvasRenderingContext2D, img: HTMLImageElemen
   ctx.restore();
 }
 
-/** A scanned environment handed to a game instead of a library photo. */
-export interface Live {
-  image: HTMLImageElement;
-  regions: import('./geometry').Region[];
-  scale?: number;                 // physics scale (bird size follows the book size)
-  audio?: AudioContext | null;    // already unlocked by a tap on the scan screen
-  rescan: () => void;
-}
-
-export function canvasToImage(c: HTMLCanvasElement): Promise<HTMLImageElement> {
-  return new Promise((res, rej) => c.toBlob(b => {
-    if (!b) return rej(new Error('snapshot failed'));
-    const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('snapshot failed')); i.src = URL.createObjectURL(b);
-  }, 'image/jpeg', 0.92));
-}

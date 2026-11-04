@@ -4,5 +4,5 @@
     "resolveJsonModule": true, "isolatedModules": true, "noEmit": true, "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["vite/client"]
   },
-  "include": ["src", "shared", "games"]
+  "include": ["src", "shared", "games", "xr"]
 }

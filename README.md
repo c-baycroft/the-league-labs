@@ -29,6 +29,13 @@ How it works (all on-device, no ML, ~2 ms/frame):
 Limits: tracking handles shake, small pans and small tilts — not walking closer/further or big rotations (it pauses; rescan).
 Dev: `npm run dev` (https, LAN) or `npm run dev:local`. Test without a camera: `#scan?photo=library/piano-bookshelf.jpg&shake=1` simulates a handheld camera.
 
+## Mixed Reality on Meta Quest (WebXR)
+Open **https://c-baycroft.github.io/the-league-labs/** in the **Quest Browser** -> *Mixed Reality (Quest)* -> pick a game -> *Enter MR*.
+Works with hand tracking (recommended) or controllers. Register real geometry by **holding a fingertip still on it for ½ s** (a ring fills); hold again on the same spot to remove it.
+- **Piano**: hold on each book you want as a key (left -> right is low -> high), pinch to play. Touch the real books; glowing book = the beat. Free-flowing, no game over.
+- **Flappy**: hold under the shelf above the gap, then on the tops of the books along the gap (3+), pinch to start; pinch = flap. Bird bounces off the real geometry and loops.
+Code: `xr/` (three.js). Desktop simulator for testing: `#xr?sim=1` (mouse held on the fake shelf = fingertip, Space = pinch).
+
 ## Controls
 - **9:16** button: recording layout (portrait stage, HUD fades during play).
 - **Annotate**: drag rectangles over the photo (tools: book / solid / nav / start / goal). **Save** keeps it in this browser; **Copy JSON** gives you normalized regions to paste into `games/*/config.json`.
